@@ -3,10 +3,12 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { checkExpireTime, tokenUserInfo } from "@/app/lib/login";
+import { useAuth } from "../context/LoginContext";
 
 export default function Login(){
   const router = useRouter();
   const [loginUrl, setLoginUrl] = useState("");
+  const {failedLogin} = useAuth();
 
   const clientId = "";
   const tenantId = "";
@@ -35,6 +37,7 @@ export default function Login(){
           router.push("/");
         } else {
           console.log('💡 토큰 재발급 실패 - 재로그인 필요');
+          failedLogin();
           setupLogin();
         }
       } else { // 만료시간 5분이상 남았을 경우 그대로 사용
@@ -129,7 +132,7 @@ export default function Login(){
       <h1>Microsoft 계정 로그인</h1>
       {loginUrl && (
         <a href={loginUrl}>
-        <button style={{ padding: 10, fontSize: 16 }}>
+        <button style={{ padding: 10, fontSize: 16, cursor:"pointer" }}>
           Microsoft 로그인
         </button>
       </a>

@@ -3,11 +3,13 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { checkExpireTime, tokenUserInfo } from "@/app/lib/login";
+import { useAuth } from "@/app/context/LoginContext";
 
 export default function LoginRedirect(){
   const searchParams = useSearchParams();
   const router = useRouter();
   const [userInfo, setUserInfo] = useState(null);
+  const { login } = useAuth();
   
   const clientId = "";
   const tenantId = "";
@@ -69,6 +71,8 @@ export default function LoginRedirect(){
           setUserInfo(userEmail);
           console.log("userEmail :", userEmail);
           console.log('✅ 로그인 성공!');
+          // localStorage.setItem("login_token", "login");
+          login(true); // 로그인 상태 변경
         } else {
           console.error("id_token decoding error");
           return;
