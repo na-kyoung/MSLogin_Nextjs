@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { checkExpireTime, tokenUserInfo } from "@/app/lib/login";
 
 export default function Login(){
   const router = useRouter();
@@ -11,57 +12,41 @@ export default function Login(){
   const tenantId = "";
   const redirectUri = 'http://localhost:3000/mslogin/redirect';
   const scope = 'openid profile email User.Read';
-
-  // 토큰 만료시간 계산
-  const checkExpireTime = (sec) => {
-    const now = Date.now(); // 현재 시간 (ms 단위)
-    const expiresIn = sec * 1000; // 응답에서 받은 값, 초 → 밀리초 변환
-    const expiresAt = now + expiresIn; // 만료 예정 시간 계산
-    console.log(now, expiresAt);
-    return expiresAt;
-  }
-
-  // 토큰 디코딩
-  const parseJwt = (token) => {
-    try {
-      const base64Url = token.split('.')[1]
-      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/')
-      const jsonPayload = decodeURIComponent(
-        atob(base64).split('').map(c =>
-          '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
-        ).join('')
-      )
-      return JSON.parse(jsonPayload)
-    } catch (e) {
-      console.error("❌ JWT 파싱 실패", e)
-      return null
-    }
-  }
-
-  // id token 디코딩해서 계정 정보 찾기
-  const tokenUserInfo = (idToken) => {
-    if (idToken) {
-      const decoded = parseJwt(idToken);
-      console.log('🧾 ID Token 디코드 결과:', decoded);
-      console.log('user email : ', decoded.preferred_username);
-      console.log('user name : ', decoded.name);
-
-      const nonce = localStorage.getItem("auth_nonce")
-      if (decoded?.nonce !== nonce) {
-        console.error("⚠️ nonce 불일치. 리플레이 공격 가능성이 있습니다.")
-        return
-      }
-      return decoded.preferred_username;
-    }
-    else {
-      console.warn("ℹ️ 응답에 id_token이 포함되지 않았습니다.");
-    }
-  }
-
+  
   useEffect(() => {
     console.log("📌 MS Login");
     
-    // access token 재발급
+    // #1. 토큰 재발급 여부 파악
+    const checkToken = async() => {
+      const accessToken = localStorage.getItem('access_token');
+      const now = Date.now();
+      const expireTime = localStorage.getItem('expire_time');
+      console.log(now, expireTime);
+  
+      if (expireTime == undefined || expireTime == null || !expireTime || !accessToken){ // 로그인 기록 없음
+        console.log('💡 최초 로그인');
+        setupLogin();
+      } else if (now > expireTime - 5 * 60 * 1000) { // 만료 5분전 재발급
+        console.log('💡 토큰 만료 or 토큰 만료 5분전 - 토큰 재발급 중..');
+        const refreshresult = await refreshLogin(); // 재발급
+        
+        if(refreshresult){
+          console.log('💡 토큰 재발급 성공');
+          router.push("/");
+        } else {
+          console.log('💡 토큰 재발급 실패 - 재로그인 필요');
+          setupLogin();
+        }
+      } else { // 만료시간 5분이상 남았을 경우 그대로 사용
+        console.log('💡 토큰 만료 안됨 - 자동 로그인');
+        const idToken = localStorage.getItem('id_token');
+        const userEmail = tokenUserInfo(idToken);
+  
+        router.push("/");
+      }
+    }
+    
+    // #2-1. access token 재발급
     const refreshLogin = async () => {
       const refreshToken = localStorage.getItem('refresh_token');
       if (refreshToken) {
@@ -87,9 +72,16 @@ export default function Login(){
           
           const idToken = result.id_token;
           localStorage.setItem("id_token", idToken);
-          const email = tokenUserInfo(idToken);
-
+          const userEmail = tokenUserInfo(idToken);
           return true;
+          
+          // if(userInfo){
+          //   console.log("userInfo :", userInfo);
+          //   return true;
+          // } else {
+          //   console.error("id_token decoding error");
+          //   return false;
+          // }
         } else {
           console.log("❌ 재발급 실패 :", result);
           return false;
@@ -100,17 +92,17 @@ export default function Login(){
       }
     };
 
-    // 로그인
+    // #2-2. 로그인
     const setupLogin = async () => {
       const codeVerifier = generateRandomString(128);
       const codeChallenge = await generateCodeChallenge(codeVerifier);
       localStorage.setItem("code_verifier", codeVerifier);
 
       // state & nonce 생성 및 저장 (권장)
-      const state = crypto.randomUUID() // CSRF(Cross-Site Request Forgery, 사이트 간 요청 위조) 방지 목적
-      const nonce = crypto.randomUUID() // ID 토큰 무결성 검증용 / 응답받은 token값 안에 nonce가 같이 들어 있음 / OpenID Connect 즉, OAuth 2.0을 기반한 로그인 인증 표준 프로토콜에 권장되는 리플레이 공격 방지 장치
-      localStorage.setItem("auth_state", state)
-      localStorage.setItem("auth_nonce", nonce)
+      const state = crypto.randomUUID(); // CSRF(Cross-Site Request Forgery, 사이트 간 요청 위조) 방지 목적
+      const nonce = crypto.randomUUID(); // ID 토큰 무결성 검증용 / 응답받은 token값 안에 nonce가 같이 들어 있음 / OpenID Connect 즉, OAuth 2.0을 기반한 로그인 인증 표준 프로토콜에 권장되는 리플레이 공격 방지 장치
+      localStorage.setItem("auth_state", state);
+      localStorage.setItem("auth_nonce", nonce);
 
       const authorizeUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize` +
         `?client_id=${encodeURIComponent(clientId)}` +
@@ -128,36 +120,6 @@ export default function Login(){
 
       setLoginUrl(authorizeUrl);
     };
-  
-    // 토큰 재발급 여부 파악
-    const checkToken = async() => {
-      const accessToken = localStorage.getItem('access_token');
-      const now = Date.now();
-      const expireTime = localStorage.getItem('expire_time');
-      console.log(now, expireTime);
-
-      if (expireTime == undefined || expireTime == null || !expireTime || !accessToken){ // 로그인 기록 없음
-        console.log('💡 최초 로그인');
-        setupLogin();
-      } else if (now > expireTime - 5 * 60 * 1000) { // 만료 5분전 재발급
-        console.log('💡 토큰 만료 or 토큰 만료 5분전 - 토큰 재발급 중..');
-        const refreshresult = await refreshLogin(); // 재발급
-        
-        if(refreshresult){
-          console.log('💡 토큰 재발급 성공');
-          router.push("/");
-        } else {
-          console.log('💡 토큰 재발급 실패 - 재로그인 필요');
-          setupLogin();
-        }
-      } else { // 만료시간 5분이상 남았을 경우 그대로 사용
-        console.log('💡 토큰 만료 안됨 - 자동 로그인');
-        const idToken = localStorage.getItem('id_token');
-        const email = tokenUserInfo(idToken);
-
-        router.push("/");
-      }
-    }
 
     checkToken();
 }, []);
