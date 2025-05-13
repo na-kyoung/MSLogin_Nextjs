@@ -9,7 +9,6 @@ export const LoginProvider = ({ children }) => {
   const [Loggedin, setLoggedin] = useState(false);
   const router = useRouter();
 
-  // 예시: 로컬스토리지 기반 상태 복구
   useEffect(() => {
     const token = localStorage.getItem('login_token');
     setLoggedin(!!token);
